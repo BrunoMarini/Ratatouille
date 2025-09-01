@@ -1,49 +1,57 @@
 #include <Wire.h>
+#include <Servo.h>
 
 /*
- * Definições de alguns endereços mais comuns do MPU6050
- * os registros podem ser facilmente encontrados no mapa de registros do MPU6050
+ * Definition of MPU-6050 Address
+ * These registeres can be found on MPU-6050 Register Map
  */
-const int MPU_ADDR = 0x68;      // MPU-6050 Address
-const int WHO_AM_I = 0x75;      // Device identification register
-const int PWR_MGMT_1 = 0x6B;    // Power management register
-const int GYRO_CONFIG = 0x1B;   // Gyroscope config register
-const int ACCEL_CONFIG = 0x1C;  // Acelerometer config register
-const int ACCEL_XOUT = 0x3B;    // X axis read register
+const int MPU_ADDR_1 = 0x68;   // First MPU-6050 Address 
+const int MPU_ADDR_2 = 0x69;   // Second MPU-6050 Address
 
-const int sda_pin = D5;  // definição do pino I2C SDA
-const int scl_pin = D6;  // definição do pino I2C SCL
+const int WHO_AM_I = 0x75;     // Device identification register
+const int PWR_MGMT_1 = 0x6B;   // Power management register
+const int GYRO_CONFIG = 0x1B;  // Gyroscope config register
+const int ACCEL_CONFIG = 0x1C; // Acelerometer config register
+const int ACCEL_XOUT = 0x3B;   // X axis read register
 
-// variáveis para armazenar os dados "crus" do acelerômetro
+// I2C SDA and SCL Pin definition
+const int sda_pin = D5;
+const int scl_pin = D6;
+
+// Variables to store sensor raw data
 int16_t aX, aY, aZ, tmp, gX, gY, gZ;
 
-/*
- * This function setups the I2C communication with the defined pins
- */
-void initI2C() {
-  Serial.println("initI2C()");
-  Wire.begin(sda_pin, scl_pin);
-}
+Servo servo;
 
-/*
- * This function writes a value on a register
- */
-void writeRegMPU(int reg, int val) {
-  Wire.beginTransmission(MPU_ADDR);  
-  Wire.write(reg);
-  Wire.write(val);
+void initMPU(int mpu_addr) {
+  Wire.beginTransmission(mpu_addr);
+  Wire.write(PWR_MGMT_1);
+  Wire.write(0); // wake up
   Wire.endTransmission(true);
+  delay(10);
+
+  Wire.beginTransmission(mpu_addr);
+  Wire.write(GYRO_CONFIG);
+  Wire.write(0);
+  Wire.endTransmission(true);
+  delay(10);
+
+  Wire.beginTransmission(mpu_addr);
+  Wire.write(ACCEL_CONFIG);
+  Wire.write(0);
+  Wire.endTransmission(true);
+  delay(10);
 }
 
 /*
  * This function reads the data from a register
  */
-uint8_t readRegMPU(uint8_t reg) {
+uint8_t readRegMPU(int mpu_addr, uint8_t reg) {
   uint8_t data;
-  Wire.beginTransmission(MPU_ADDR);
+  Wire.beginTransmission(mpu_addr);
   Wire.write(reg);
   Wire.endTransmission(false);
-  Wire.requestFrom(MPU_ADDR, 1);
+  Wire.requestFrom(mpu_addr, 1);
   data = Wire.read();
   return data;
 }
@@ -52,12 +60,12 @@ uint8_t readRegMPU(uint8_t reg) {
  * This function searches for a sensor on 0x68 address
  */
 void findMPU(int mpu_addr) {
-  Wire.beginTransmission(MPU_ADDR);
+  Wire.beginTransmission(mpu_addr);
   int data = Wire.endTransmission(true);
 
   if (data == 0) {
     Serial.print("Dispositivo encontrado no endereço: 0x");
-    Serial.println(MPU_ADDR, HEX);
+    Serial.println(mpu_addr, HEX);
   } else {
     Serial.println("Dispositivo não encontrado!");
   }
@@ -67,14 +75,14 @@ void findMPU(int mpu_addr) {
  * This function verifies if the sensor is active
  */
 void checkMPU(int mpu_addr) {
-  findMPU(MPU_ADDR);
+  findMPU(mpu_addr);
 
-  int data = readRegMPU(WHO_AM_I);  // Register 117 – Who Am I - 0x75
+  int data = readRegMPU(mpu_addr, WHO_AM_I);  // Register 117 – Who Am I - 0x75
 
   if (data == 104) {
     Serial.println("MPU6050 Dispositivo respondeu OK! (104)");
 
-    data = readRegMPU(PWR_MGMT_1);  // Register 107 – Power Management 1-0x6B
+    data = readRegMPU(mpu_addr, PWR_MGMT_1);  // Register 107 – Power Management 1-0x6B
 
     if (data == 64) {
       Serial.println("MPU6050 em modo SLEEP! (64)");
@@ -87,50 +95,15 @@ void checkMPU(int mpu_addr) {
 }
 
 /*
- * This function initialize the sensor
+ * This function initializes the Servo
  */
-void initMPU() {
-  setSleepOff();
-  setGyroScale();
-  setAccelScale();
-}
-
-/*
- * This function configures the sleep bit
- * Writes 0 on battery management register, putting the sensor on ACTIVE mode 
- */
-void setSleepOff() {
-  writeRegMPU(PWR_MGMT_1, 0);
-}
-
-/*
- * This function configures the Gyroscope scale
- * Gyroscope scale register: 0x1B [4:3]
- * 0 -> 250°/s
- *
- * FS_SEL  Full Scale Range
- *   0        ± 250 °/s      0b00000000
- *   1        ± 500 °/s      0b00001000
- *   2        ± 1000 °/s     0b00010000
- *   3        ± 2000 °/s     0b00011000
- */
-void setGyroScale() {
-  writeRegMPU(GYRO_CONFIG, 0);
-}
-
-/**
- * This function setup the accelerometer scales
- * Scale register: 0x1C [4:3]
- * 0 -> 250°/s
- *
- * AFS_SEL   Full Scale Range
- *    0           ± 2g            0b00000000
- *    1           ± 4g            0b00001000
- *    2           ± 8g            0b00010000
- *    3           ± 16g           0b00011000
- */
-void setAccelScale() {
-  writeRegMPU(ACCEL_CONFIG, 0);
+void initServo() {
+  servo.attach(2); // D4
+  servo.write(0);
+  delay(1000);
+  servo.write(180);
+  delay(1000);
+  servo.write(0);
 }
 
 /**
@@ -139,12 +112,14 @@ void setAccelScale() {
   * - 2 Bytes for each axis for Acelerometer (6 in total)
   * - 2 Bytes for each axis for Gyroscope    (6 in total)
   * - 2 Bytes for temperature
+  *
+  * returns the X roll Angle in degrees
   */
-void readRawMPU() {
-  Wire.beginTransmission(MPU_ADDR);
+int readRawMPU(int mpu_addr) {
+  Wire.beginTransmission(mpu_addr);
   Wire.write(ACCEL_XOUT);
   Wire.endTransmission(false);
-  Wire.requestFrom(MPU_ADDR, 14);
+  Wire.requestFrom(mpu_addr, 14);
 
   aX = Wire.read() << 8;  // Read most significant byte first
   aX |= Wire.read();      // OR with less significant byte
@@ -172,30 +147,46 @@ void readRawMPU() {
   // float pitch = atan2(ay_g, az_g) * 180.0 / PI;
   float roll = atan2(ax_g, az_g) * 180.0 / PI;
 
-  int positionThreshold = 20;
-
-  if (roll > positionThreshold) {
-    Serial.println("Cima");
-  } else if (roll < -positionThreshold) {
-    Serial.println("Baixo");
-  } else {
-    Serial.println("Horizontal");
-  }
+  return (int) roll;
 }
 
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   Serial.begin(115200);
 
-  Serial.println("nIniciando configuração do MPU6050n");
-  initI2C();
-  initMPU();
-  checkMPU(MPU_ADDR);
+  Serial.println("Starting MPU-6050 Setup");
 
-  Serial.println("nConfiguração finalizada, iniciando loopn");
+  Serial.println("Initializing I2C");
+  Wire.begin(sda_pin, scl_pin);
+
+  Serial.println("Setup MPU");
+  initMPU(MPU_ADDR_1);
+  initMPU(MPU_ADDR_2);
+
+  checkMPU(MPU_ADDR_1);
+  checkMPU(MPU_ADDR_2);
+
+  //initServo();
+
+  Serial.println("Setup finished. Starting Loop...");
+  delay(2000);
 }
 
 void loop() {
-  readRawMPU();
+  int roll1 = readRawMPU(MPU_ADDR_1);
+  int roll2 = readRawMPU(MPU_ADDR_2);
+
+  // Valule, Min, Max, Target Min, Target Max
+  int angle1 = map(roll1, -90, 90, 0, 180);
+  int angle2 = map(roll2, -90, 90, 0, 180);
+
+  Serial.print("Pos 1: "); Serial.println(roll1);
+  Serial.print("Angle: "); Serial.println(angle1);
+  Serial.print("Pos 2: "); Serial.println(roll2);
+  Serial.print("Angle: "); Serial.println(angle2);
+  Serial.println("=====================");
+
+  //servo.write(angle);
+
   delay(200);
 }
